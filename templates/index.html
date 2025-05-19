@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Website RAG Chatbot</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .chat-container {
+            height: calc(100vh - 280px);
+            overflow-y: auto;
+        }
+        .typing-indicator::after {
+            content: '...';
+            animation: typing 1.5s infinite;
+        }
+        @keyframes typing {
+            0% { content: '.'; }
+            33% { content: '..'; }
+            66% { content: '...'; }
+            100% { content: '.'; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-4xl mx-auto">
+            <h1 class="text-3xl font-bold text-center mb-8 text-blue-600">Website RAG Chatbot</h1>
+            
+            <!-- Website URL Input Section -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <h2 class="text-xl font-semibold mb-4">Initialize Chatbot with Website Data</h2>
+                <div class="flex flex-col space-y-4">
+                    <div id="url-inputs">
+                        <div class="flex space-x-2 mb-2">
+                            <input type="text" id="url-1" placeholder="Enter website URL (e.g., https://example.com)" 
+                                   class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <button onclick="addUrlInput()" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">
+                                Add URL
+                            </button>
+                        </div>
+                    </div>
+                    <button id="initialize-btn" onclick="initializeBot()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        Initialize Chatbot
+                    </button>
+                    <div id="init-status" class="text-center hidden"></div>
+                </div>
+            </div>
+            
+            <!-- Chat Section -->
+            <div class="bg-white rounded-lg shadow-md">
+                <div id="chat-container" class="chat-container p-6 border-b">
+                    <div class="flex items-start mb-4">
+                        <div class="flex-shrink-0 h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">
+                            B
+                        </div>
+                        <div class="ml-3 bg-blue-100 p-3 rounded-lg">
+                            <p>Hi there! I'm your website assistant. Please initialize me with a website URL first, and then I'll be ready to answer your questions about the website content.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-4">
+                    <div class="flex space-x-2">
+                        <input id="message-input" type="text" placeholder="Type your message..." 
+                               class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               onkeydown="if(event.key === 'Enter') sendMessage()">
+                        <button onclick="sendMessage()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            Send
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let sessionId = null;
+        let urlCounter = 1;
+        let isInitialized = false;
+        
+        // Generate a session ID on page load
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch('/generate_session');
+                const data = await response.json();
+                sessionId = data.session_id;
+                console.log('Session ID:', sessionId);
+            } catch (error) {
+                console.error('Error generating session:', error);
+            }
+        });
+        
+        function addUrlInput() {
+            urlCounter++;
+            const urlInputsDiv = document.getElementById('url-inputs');
+            const newInputDiv = document.createElement('div');
+            newInputDiv.className = 'flex space-x-2 mb-2';
+            newInputDiv.innerHTML = `
+                <input type="text" id="url-${urlCounter}" placeholder="Enter website URL (e.g., https://example.com)" 
+                       class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button onclick="removeUrlInput(this)" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">
+                    Remove
+                </button>
+            `;
+            urlInputsDiv.appendChild(newInputDiv);
+        }
+        
+        function removeUrlInput(button) {
+            button.parentElement.remove();
+        }
+        
+        async function initializeBot() {
+            const initStatusDiv = document.getElementById('init-status');
+            initStatusDiv.className = 'text-center text-yellow-600 font-medium mt-2';
+            initStatusDiv.innerHTML = 'Initializing chatbot with website data... This may take a minute.';
+            initStatusDiv.classList.remove('hidden');
+            
+            const initButton = document.getElementById('initialize-btn');
+            initButton.disabled = true;
+            initButton.className = 'w-full px-4 py-2 bg-gray-400 text-white rounded-lg';
+            
+            // Collect all URLs
+            const urls = [];
+            for (let i = 1; i <= urlCounter; i++) {
+                const urlInput = document.getElementById(`url-${i}`);
+                if (urlInput && urlInput.value.trim()) {
+                    urls.push(urlInput.value.trim());
+                }
+            }
+            
+            if (urls.length === 0) {
+                initStatusDiv.className = 'text-center text-red-600 font-medium mt-2';
+                initStatusDiv.innerHTML = 'Please enter at least one valid URL';
+                initButton.disabled = false;
+                initButton.className = 'w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700';
+                return;
+            }
+            
+            try {
+                const response = await fetch('/initialize', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ urls }),
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    initStatusDiv.className = 'text-center text-green-600 font-medium mt-2';
+                    initStatusDiv.innerHTML = 'Chatbot initialized successfully! You can now ask questions about the website.';
+                    isInitialized = true;
+                    
+                    // Add system message to chat
+                    const chatContainer = document.getElementById('chat-container');
+                    chatContainer.innerHTML = '';
+                    
+                    const systemMessage = document.createElement('div');
+                    systemMessage.className = 'flex items-start mb-4';
+                    systemMessage.innerHTML = `
+                        <div class="flex-shrink-0 h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">
+                            B
+                        </div>
+                        <div class="ml-3 bg-blue-100 p-3 rounded-lg">
+                            <p>I've analyzed the website content and I'm ready to answer your questions! How can I help you?</p>
+                        </div>
+                    `;
+                    chatContainer.appendChild(systemMessage);
+                } else {
+                    initStatusDiv.className = 'text-center text-red-600 font-medium mt-2';
+                    initStatusDiv.innerHTML = `Error: ${data.error || 'Failed to initialize chatbot'}`;
+                }
+            } catch (error) {
+                console.error('Error initializing chatbot:', error);
+                initStatusDiv.className = 'text-center text-red-600 font-medium mt-2';
+                initStatusDiv.innerHTML = 'Failed to initialize chatbot. Check console for details.';
+            }
+            
+            initButton.disabled = false;
+            initButton.className = 'w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700';
+        }
+        
+        async function sendMessage() {
+            if (!isInitialized) {
+                alert('Please initialize the chatbot with a website URL first.');
+                return;
+            }
+            
+            const messageInput = document.getElementById('message-input');
+            const userMessage = messageInput.value.trim();
+            
+            if (!userMessage) return;
+            
+            const chatContainer = document.getElementById('chat-container');
+            
+            // Add user message
+            const userMessageDiv = document.createElement('div');
+            userMessageDiv.className = 'flex items-start justify-end mb-4';
+            userMessageDiv.innerHTML = `
+                <div class="mr-3 bg-blue-600 text-white p-3 rounded-lg">
+                    <p>${userMessage}</p>
+                </div>
+                <div class="flex-shrink-0 h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center font-bold">
+                    U
+                </div>
+            `;
+            chatContainer.appendChild(userMessageDiv);
+            
+            // Add typing indicator
+            const typingIndicator = document.createElement('div');
+            typingIndicator.className = 'flex items-start mb-4';
+            typingIndicator.innerHTML = `
+                <div class="flex-shrink-0 h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">
+                    B
+                </div>
+                <div class="ml-3 bg-blue-100 p-3 rounded-lg typing-indicator">
+                    <p>Thinking</p>
+                </div>
+            `;
+            chatContainer.appendChild(typingIndicator);
+            
+            // Clear input
+            messageInput.value = '';
+            
+            // Scroll to bottom
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: userMessage,
+                        session_id: sessionId
+                    }),
+                });
+                
+                const data = await response.json();
+                
+                // Remove typing indicator
+                chatContainer.removeChild(typingIndicator);
+                
+                // Add bot response
+                const botMessageDiv = document.createElement('div');
+                botMessageDiv.className = 'flex items-start mb-4';
+                botMessageDiv.innerHTML = `
+                    <div class="flex-shrink-0 h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">
+                        B
+                    </div>
+                    <div class="ml-3 bg-blue-100 p-3 rounded-lg">
+                        <p>${data.response || data.error}</p>
+                    </div>
+                `;
+                chatContainer.appendChild(botMessageDiv);
+                
+                // Scroll to bottom
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            } catch (error) {
+                console.error('Error sending message:', error);
+                
+                // Remove typing indicator
+                chatContainer.removeChild(typingIndicator);
+                
+                // Add error message
+                const errorMessageDiv = document.createElement('div');
+                errorMessageDiv.className = 'flex items-start mb-4';
+                errorMessageDiv.innerHTML = `
+                    <div class="flex-shrink-0 h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">
+                        B
+                    </div>
+                    <div class="ml-3 bg-red-100 p-3 rounded-lg">
+                        <p>Sorry, there was an error processing your request. Please try again.</p>
+                    </div>
+                `;
+                chatContainer.appendChild(errorMessageDiv);
+                
+                // Scroll to bottom
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+        }
+    </script>
+</body>
+</html>
